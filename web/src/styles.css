@@ -1,0 +1,130 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap");
+
+:root {
+  font-family: "IBM Plex Sans", sans-serif;
+  color: #101318;
+  background-color: #f7f9fc;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background-image:
+    linear-gradient(#dfe5ef 1px, transparent 1px),
+    linear-gradient(90deg, #dfe5ef 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+button, a { font: inherit; }
+a { color: inherit; text-underline-offset: 4px; }
+button:focus-visible, a:focus-visible, canvas:focus-visible { outline: 3px solid #ff5d22; outline-offset: 3px; }
+
+main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; }
+
+.masthead {
+  height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 2px solid #101318;
+  font-size: 0.9rem;
+}
+
+.brand { font-weight: 600; text-decoration: none; }
+
+.intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(250px, 0.7fr);
+  gap: 48px;
+  align-items: end;
+  padding: 72px 0 44px;
+}
+
+h1 {
+  margin: 0;
+  max-width: 820px;
+  font-size: clamp(3.2rem, 7vw, 6.9rem);
+  line-height: 0.88;
+  letter-spacing: -0.065em;
+  font-weight: 600;
+}
+
+.intro p { margin: 0; max-width: 34rem; line-height: 1.55; font-size: 1.05rem; }
+
+.workbench {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(390px, 1.1fr);
+  background: #fff;
+  border: 2px solid #101318;
+  box-shadow: 10px 10px 0 #1463ff;
+}
+
+.drawing-panel, .result-panel { padding: clamp(24px, 4vw, 48px); }
+.drawing-panel { border-right: 2px solid #101318; }
+.panel-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+h2 { margin: 0; font-size: 1.2rem; letter-spacing: -0.02em; }
+.text-button { border: 0; background: transparent; text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
+
+canvas {
+  display: block;
+  width: min(100%, 360px);
+  aspect-ratio: 1;
+  margin: 0 auto;
+  background: #000;
+  border: 8px solid #eef2f8;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.run-button {
+  width: 100%;
+  margin-top: 20px;
+  padding: 15px 20px;
+  border: 2px solid #101318;
+  background: #1463ff;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+.run-button:hover { background: #0c4ed1; }
+.run-button:disabled { background: #7d8ba3; cursor: wait; }
+.status { min-height: 24px; margin: 14px 0 0; color: #566174; font-size: 0.9rem; }
+.status.error { color: #c7380b; }
+
+.result-panel { background: #f7f9fc; }
+.result-number { font-size: clamp(6rem, 14vw, 11rem); line-height: 0.78; letter-spacing: -0.08em; font-weight: 600; color: #1463ff; }
+.confidence { margin: 20px 0 30px; font-size: 1.05rem; }
+.probabilities { display: grid; gap: 10px; }
+.probability { display: grid; grid-template-columns: 20px 1fr 52px; gap: 12px; align-items: center; font-variant-numeric: tabular-nums; }
+.probability output { text-align: right; color: #566174; font-size: 0.85rem; }
+.track { height: 9px; background: #dfe5ef; overflow: hidden; }
+.track div { height: 100%; background: #1463ff; transition: width 280ms ease-out; }
+
+.method {
+  display: grid;
+  grid-template-columns: 0.7fr 1.3fr;
+  gap: 48px;
+  padding: 80px 0;
+}
+.method ol { margin: 0; padding-left: 22px; line-height: 1.7; }
+.privacy { grid-column: 2; margin: 8px 0 0; padding-top: 22px; border-top: 1px solid #8792a5; color: #566174; }
+
+@media (max-width: 760px) {
+  main { width: min(100% - 24px, 620px); }
+  .masthead { height: 64px; }
+  .intro { grid-template-columns: 1fr; gap: 24px; padding: 48px 0 32px; }
+  h1 { font-size: clamp(3rem, 15vw, 5.4rem); }
+  .workbench { grid-template-columns: 1fr; box-shadow: 6px 6px 0 #1463ff; }
+  .drawing-panel { border-right: 0; border-bottom: 2px solid #101318; }
+  .method { grid-template-columns: 1fr; gap: 20px; padding: 64px 0; }
+  .privacy { grid-column: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .track div { transition: none; }
+}

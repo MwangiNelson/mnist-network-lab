@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.local
+artifacts/*.keras
+artifacts/*.h5
+artifacts/*.onnx
+artifacts/*.csv
+artifacts/*.json
+artifacts/plots/
+!artifacts/.gitkeep

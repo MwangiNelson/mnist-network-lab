@@ -46,7 +46,7 @@ runtime and use full mode for the submitted results.
 RUN_FULL = False
 SEED = 8401
 
-%pip install -q "tensorflow>=2.16,<2.20" "seaborn>=0.13,<1" "scikit-learn>=1.4,<2"
+%pip install -q "tensorflow>=2.20,<2.22" "seaborn>=0.13,<1" "scikit-learn>=1.4,<2"
 """
     ),
     code(
@@ -615,7 +615,7 @@ for axis in axes.flat:
 for axis, index in zip(axes.flat, shown):
     axis.imshow(x_test_raw[index], cmap="gray_r")
     axis.set_title(
-        f"True {y_test[index]} | Pred {fc_predictions[index]}\n"
+        f"True {y_test[index]} | Pred {fc_predictions[index]}\\n"
         f"p={fc_probabilities[index, fc_predictions[index]]:.2f}"
     )
     axis.axis("off")

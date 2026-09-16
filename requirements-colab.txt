@@ -1,4 +1,4 @@
-tensorflow>=2.16,<2.20
+tensorflow>=2.20,<2.22
 numpy>=1.26,<3
 pandas>=2.2,<3
 matplotlib>=3.8,<4

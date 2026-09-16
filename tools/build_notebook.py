@@ -72,7 +72,12 @@ from sklearn.model_selection import train_test_split
 from tensorflow import keras
 
 REPO_DIR = Path("/content/mnist-network-lab")
-if not (REPO_DIR / "training" / "experiment_utils.py").exists():
+if (REPO_DIR / ".git").exists():
+    subprocess.run(
+        ["git", "-C", str(REPO_DIR), "pull", "-q", "--ff-only"],
+        check=True,
+    )
+else:
     subprocess.run(
         ["git", "clone", "-q", "https://github.com/MwangiNelson/mnist-network-lab.git", str(REPO_DIR)],
         check=True,

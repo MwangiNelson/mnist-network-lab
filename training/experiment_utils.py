@@ -122,10 +122,11 @@ class GradientNormLogger(keras.callbacks.Callback):
         gradients = tape.gradient(loss, kernels)
         for variable, gradient in zip(kernels, gradients):
             norm = np.nan if gradient is None else float(tf.norm(gradient).numpy())
+            variable_path = getattr(variable, "path", variable.name)
             self.rows.append(
                 {
                     "epoch": epoch + 1,
-                    "layer": variable.name.split("/")[0],
+                    "layer": variable_path.split("/")[0],
                     "gradient_norm": norm,
                 }
             )

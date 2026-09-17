@@ -347,6 +347,7 @@ deep_sigmoid = ExperimentConfig(
 )
 execute(deep_sigmoid, callbacks=[gradient_logger])
 gradient_frame = gradient_logger.to_frame()
+gradient_frame.to_csv(ARTIFACT_DIR / "gradient_norms.csv", index=False)
 display(gradient_frame.head())
 
 plt.figure(figsize=(10, 5))
@@ -599,6 +600,7 @@ histories[final_config.name] = final_history
 fc_test_loss, fc_test_accuracy = final_fc.evaluate(x_test_fc, y_test, verbose=0)
 fc_probabilities = final_fc.predict(x_test_fc, verbose=0)
 fc_predictions = fc_probabilities.argmax(axis=1)
+fc_confusion = confusion_matrix(y_test, fc_predictions)
 print(f"FC test loss: {fc_test_loss:.4f}")
 print(f"FC test accuracy: {fc_test_accuracy:.4f}")
 print(classification_report(y_test, fc_predictions, digits=4))
@@ -612,6 +614,15 @@ plt.savefig(PLOT_DIR / "fc_confusion_matrix.png", dpi=160, bbox_inches="tight")
 plt.show()
 
 error_indices = np.flatnonzero(fc_predictions != y_test)
+pd.DataFrame({
+    "test_index": error_indices,
+    "true_label": y_test[error_indices],
+    "predicted_label": fc_predictions[error_indices],
+    "predicted_probability": fc_probabilities[
+        error_indices, fc_predictions[error_indices]
+    ],
+}).to_csv(ARTIFACT_DIR / "fc_misclassifications.csv", index=False)
+pd.DataFrame(fc_confusion).to_csv(ARTIFACT_DIR / "fc_confusion_matrix.csv", index=False)
 rng = np.random.default_rng(SEED)
 shown = rng.choice(error_indices, size=min(15, len(error_indices)), replace=False)
 fig, axes = plt.subplots(3, 5, figsize=(11, 7))
@@ -698,6 +709,7 @@ histories["classical_cnn"] = cnn_history
 cnn_test_loss, cnn_test_accuracy = cnn.evaluate(x_test_cnn, y_test, verbose=0)
 cnn_probabilities = cnn.predict(x_test_cnn, verbose=0)
 cnn_predictions = cnn_probabilities.argmax(axis=1)
+cnn_confusion = confusion_matrix(y_test, cnn_predictions)
 print(f"CNN test loss: {cnn_test_loss:.4f}")
 print(f"CNN test accuracy: {cnn_test_accuracy:.4f}")
 
@@ -725,6 +737,17 @@ comparison = pd.DataFrame([
         "test_errors": int((cnn_predictions != y_test).sum()),
     },
 ])
+comparison.to_csv(ARTIFACT_DIR / "model_comparison.csv", index=False)
+cnn_error_indices = np.flatnonzero(cnn_predictions != y_test)
+pd.DataFrame({
+    "test_index": cnn_error_indices,
+    "true_label": y_test[cnn_error_indices],
+    "predicted_label": cnn_predictions[cnn_error_indices],
+    "predicted_probability": cnn_probabilities[
+        cnn_error_indices, cnn_predictions[cnn_error_indices]
+    ],
+}).to_csv(ARTIFACT_DIR / "cnn_misclassifications.csv", index=False)
+pd.DataFrame(cnn_confusion).to_csv(ARTIFACT_DIR / "cnn_confusion_matrix.csv", index=False)
 display(comparison)
 """
     ),

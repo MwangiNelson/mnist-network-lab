@@ -52,8 +52,8 @@ runtime with `RUN_FULL = True`, and its artifacts are in `artifacts/`.
 - [x] `artifacts/model_metadata.json`
 - [x] `artifacts/experiment_results.csv`, 28 rows across 10 phases
 - [x] Public GitHub repository: https://github.com/MwangiNelson/mnist-network-lab
-- [ ] Public web application URL
-- [ ] Public API health URL
+- [x] Public web application: https://mnist-network-lab.vercel.app
+- [x] Public API health: https://mnist-api.astralyngroup.com/health
 
 ## Final integrity check
 

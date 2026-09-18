@@ -9,6 +9,15 @@ experiments. It selects a final fully connected model before introducing the
 CNN benchmark. The web application sends a normalized 28 by 28 drawing to a
 FastAPI service and displays the ten class probabilities.
 
+## Live
+
+- Drawing app: https://mnist-network-lab.vercel.app
+- API health: https://mnist-api.astralyngroup.com/health
+
+The final fully connected model reaches 97.89% on the 10,000 MNIST test images.
+The classical CNN benchmark reaches 99.02%. Both are single-seed results; the
+notebook states what that does and does not support.
+
 ## Repository contents
 
 | Path | Purpose |

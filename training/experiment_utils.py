@@ -103,15 +103,24 @@ def build_cnn(
 class GradientNormLogger(keras.callbacks.Callback):
     """Record per-layer gradient magnitudes for the deep sigmoid diagnostic.
 
-    Two quantities are recorded per hidden layer, because they answer different
-    questions. ``activation_grad_norm`` is the gradient of the loss with respect
-    to the layer's output activations, which is the quantity backpropagation
-    multiplies by a saturating derivative at every step, so it is the one that
-    shows vanishing gradients. ``kernel_grad_norm`` is the gradient with respect
-    to the layer's weight matrix; it also depends on fan-in and on the scale of
-    the incoming activations, so comparing it across layers of different widths
-    is misleading. ``weights`` is recorded so a per-weight figure can be derived
-    rather than guessed.
+    Timing is the whole point. Epoch 0 is recorded before any weight update,
+    because that is where a saturating stack attenuates most. Glorot
+    initialization gives a six-layer sigmoid network a backward gain near
+    ``sqrt(128 * 2/256) * 0.25 = 0.25`` per layer, so the signal reaching the
+    first hidden layer starts around ``0.25 ** 5`` of the signal at the last
+    one. Training removes this quickly: the network learns larger weights that
+    push signal through, so by the end of the first epoch the per-layer norms
+    are almost flat. Measuring only at epoch end therefore shows nothing, which
+    is what an earlier version of this callback did.
+
+    Two quantities are recorded per hidden layer. ``activation_grad_norm`` is
+    the gradient with respect to the layer's output activations, which is what
+    backpropagation multiplies by a saturating derivative at every step.
+    ``kernel_grad_norm`` is the gradient with respect to the weight matrix; it
+    also carries the layer's fan-in and the scale of its incoming activations,
+    so comparing it across layers of different widths is misleading.
+    ``weights`` is recorded so a per-weight figure can be derived rather than
+    assumed.
     """
 
     def __init__(self, x_sample: np.ndarray, y_sample: np.ndarray):
@@ -120,7 +129,13 @@ class GradientNormLogger(keras.callbacks.Callback):
         self.y_sample = tf.convert_to_tensor(y_sample)
         self.rows: list[dict[str, Any]] = []
 
+    def on_train_begin(self, logs: dict[str, Any] | None = None) -> None:
+        self._record(0)
+
     def on_epoch_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
+        self._record(epoch + 1)
+
+    def _record(self, epoch: int) -> None:
         hidden_layers = [
             layer for layer in self.model.layers if layer.name.startswith("hidden_")
         ]
@@ -160,7 +175,7 @@ class GradientNormLogger(keras.callbacks.Callback):
         ):
             self.rows.append(
                 {
-                    "epoch": epoch + 1,
+                    "epoch": epoch,
                     "layer": layer.name,
                     "activation_grad_norm": norm(activation_gradient),
                     "kernel_grad_norm": norm(kernel_gradient),

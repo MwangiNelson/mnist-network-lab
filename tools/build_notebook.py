@@ -303,18 +303,26 @@ depth improved the representation or mainly added optimization difficulty.
 
 The activation comparison holds architecture, initialization, optimizer,
 learning rate, batch size, and epochs fixed. The separate six-layer sigmoid
-network records two gradient norms per layer at the end of every epoch: the
-gradient with respect to the layer's output activations, and the gradient with
-respect to its weight matrix.
+network records two gradient norms per layer, once before any weight update
+and again at the end of every epoch: the gradient with respect to the layer's
+output activations, and the gradient with respect to its weight matrix.
 
-Only the first one answers the vanishing-gradient question. Backpropagation
-multiplies the activation gradient by a saturating derivative at every layer it
-passes through, so attenuation shows up there. A weight gradient also carries
-the layer's fan-in and the scale of its incoming activations, which makes it
-useless for comparing layers of different widths: `hidden_1` holds 784x128
-weights against 128x128 for the rest, so its norm is inflated by element count
-alone. Both are recorded, along with the weight count, so the plots below can
-show the per-weight figure rather than assume it.
+The measurement before training is the one that matters. Glorot initialization
+gives this stack a backward gain near `sqrt(128 * 2/256) * 0.25 = 0.25` per
+layer, so at epoch 0 the signal reaching the first hidden layer is a small
+fraction of the signal at the last. Training removes that within one epoch,
+because the network learns larger weights that push signal through and the
+per-layer norms flatten out. Recording only at epoch end gives an almost flat
+profile and proves nothing.
+
+Of the two quantities, only the activation gradient answers the
+vanishing-gradient question. Backpropagation multiplies it by a saturating
+derivative at every layer it passes through, so attenuation shows up there. A
+weight gradient also carries the layer's fan-in and the scale of its incoming
+activations, which makes it useless for comparing layers of different widths:
+`hidden_1` holds 784x128 weights against 128x128 for the rest, so its norm is
+inflated by element count alone. Both are recorded, along with the weight
+count, so the analysis can divide by it rather than assume it.
 """
     ),
     code(
@@ -363,39 +371,58 @@ display(gradient_frame.head())
 
 hidden_gradients = gradient_frame[gradient_frame["layer"].str.startswith("hidden_")]
 hidden_gradients = hidden_gradients.assign(
-    kernel_grad_per_weight=hidden_gradients["kernel_grad_norm"]
-    / np.sqrt(hidden_gradients["weights"])
+    depth=hidden_gradients["layer"].str.removeprefix("hidden_").astype(int)
 )
 
-fig, axes = plt.subplots(1, 3, figsize=(17, 5))
-for axis, column, title in zip(
-    axes,
-    ["activation_grad_norm", "kernel_grad_norm", "kernel_grad_per_weight"],
-    [
-        "Activation gradient: the real evidence",
-        "Raw kernel gradient: confounded by width",
-        "Kernel gradient per weight",
-    ],
-):
-    sns.lineplot(
-        data=hidden_gradients, x="epoch", y=column, hue="layer", marker="o", ax=axis
+
+def attenuation_at(epoch):
+    stage = hidden_gradients[hidden_gradients["epoch"] == epoch].set_index("layer")
+    return (
+        stage.loc["hidden_6", "activation_grad_norm"]
+        / stage.loc["hidden_1", "activation_grad_norm"]
     )
-    axis.set_yscale("log")
-    axis.set_title(title)
-    axis.set_ylabel("L2 norm on log scale")
-    axis.legend(fontsize=7)
-fig.suptitle("Deep sigmoid network: per-layer gradient norms")
+
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+# Depth on the x axis is what makes a per-layer multiplicative decay read as a
+# straight line on a log scale.
+for epoch, style in ((0, "o-"), (1, "s--"), (EXPERIMENT_EPOCHS, "^:")):
+    stage = hidden_gradients[hidden_gradients["epoch"] == epoch].sort_values("depth")
+    if stage.empty:
+        continue
+    label = f"epoch {epoch}"
+    if epoch == 0:
+        label += " (before training)"
+    axes[0].plot(stage["depth"], stage["activation_grad_norm"], style, label=label)
+axes[0].set_yscale("log")
+axes[0].set_xlabel("hidden layer, 1 is nearest the input")
+axes[0].set_ylabel("activation gradient L2 norm, log scale")
+axes[0].set_title("Attenuation at initialization, trained away within one epoch")
+axes[0].legend()
+
+sns.lineplot(
+    data=hidden_gradients,
+    x="epoch",
+    y="activation_grad_norm",
+    hue="layer",
+    marker="o",
+    ax=axes[1],
+)
+axes[1].set_yscale("log")
+axes[1].set_title("Per-layer activation gradient over training")
+axes[1].set_ylabel("L2 norm on log scale")
+axes[1].legend(fontsize=7)
+
+fig.suptitle("Deep sigmoid network: where the gradient signal goes")
 fig.tight_layout()
 fig.savefig(PLOT_DIR / "sigmoid_gradient_norms.png", dpi=160, bbox_inches="tight")
 plt.show()
 
-first_epoch = hidden_gradients[hidden_gradients["epoch"] == 1].set_index("layer")
-attenuation = (
-    first_epoch.loc["hidden_6", "activation_grad_norm"]
-    / first_epoch.loc["hidden_1", "activation_grad_norm"]
-)
-print(f"Epoch 1 activation-gradient attenuation, hidden_6 to hidden_1: {attenuation:.1f}x")
-display(first_epoch[["activation_grad_norm", "kernel_grad_norm", "weights"]])
+print(f"Attenuation hidden_6 to hidden_1 at initialization: {attenuation_at(0):.1f}x")
+print(f"Attenuation hidden_6 to hidden_1 after one epoch:   {attenuation_at(1):.1f}x")
+initial = hidden_gradients[hidden_gradients["epoch"] == 0].set_index("layer")
+display(initial[["activation_grad_norm", "kernel_grad_norm", "weights"]])
 """
     ),
     markdown(
@@ -404,9 +431,10 @@ display(first_epoch[["activation_grad_norm", "kernel_grad_norm", "weights"]])
 
 `[WRITE AFTER RUN]` State which activation converged fastest and quote the final
 validation losses. Use the left panel of the gradient plot to compare the first
-and last hidden layers, and quote the attenuation factor printed above it. Say
-what the middle panel shows and why it is the wrong instrument for this
-question. Sigmoid derivatives are small in saturated regions; multiplying many
+and last hidden layers at initialization, and quote both attenuation factors
+printed above it. Say what the epoch-0 line shows, what the later lines show,
+and why the timing of the measurement decides whether this experiment produces
+any evidence at all. Sigmoid derivatives are small in saturated regions; multiplying many
 such derivatives shrinks the signal reaching early layers. ReLU keeps a unit
 derivative for positive inputs, though inactive units can still receive a zero
 derivative. Exploding gradients are the opposite failure: repeated large

@@ -101,6 +101,19 @@ def build_cnn(
 
 
 class GradientNormLogger(keras.callbacks.Callback):
+    """Record per-layer gradient magnitudes for the deep sigmoid diagnostic.
+
+    Two quantities are recorded per hidden layer, because they answer different
+    questions. ``activation_grad_norm`` is the gradient of the loss with respect
+    to the layer's output activations, which is the quantity backpropagation
+    multiplies by a saturating derivative at every step, so it is the one that
+    shows vanishing gradients. ``kernel_grad_norm`` is the gradient with respect
+    to the layer's weight matrix; it also depends on fan-in and on the scale of
+    the incoming activations, so comparing it across layers of different widths
+    is misleading. ``weights`` is recorded so a per-weight figure can be derived
+    rather than guessed.
+    """
+
     def __init__(self, x_sample: np.ndarray, y_sample: np.ndarray):
         super().__init__()
         self.x_sample = tf.convert_to_tensor(x_sample)
@@ -108,26 +121,51 @@ class GradientNormLogger(keras.callbacks.Callback):
         self.rows: list[dict[str, Any]] = []
 
     def on_epoch_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
-        with tf.GradientTape() as tape:
-            predictions = self.model(self.x_sample, training=False)
-            loss = keras.losses.sparse_categorical_crossentropy(
-                self.y_sample, predictions
-            )
-            loss = tf.reduce_mean(loss)
-        kernels = [
-            variable
-            for variable in self.model.trainable_variables
-            if "kernel" in variable.name
+        hidden_layers = [
+            layer for layer in self.model.layers if layer.name.startswith("hidden_")
         ]
-        gradients = tape.gradient(loss, kernels)
-        for variable, gradient in zip(kernels, gradients):
-            norm = np.nan if gradient is None else float(tf.norm(gradient).numpy())
-            variable_path = getattr(variable, "path", variable.name)
+        output_layer = self.model.get_layer("digit")
+
+        # Step through the Dense layers by hand so each activation can be watched
+        # the moment it exists. A single opaque model call gives no handle on the
+        # intermediate tensors, so their gradients would come back as None.
+        # Dropout is skipped, which is what inference does anyway.
+        with tf.GradientTape(persistent=True) as tape:
+            activation = self.x_sample
+            activations = []
+            for layer in hidden_layers:
+                activation = layer(activation)
+                tape.watch(activation)
+                activations.append(activation)
+            predictions = output_layer(activation)
+            loss = tf.reduce_mean(
+                keras.losses.sparse_categorical_crossentropy(
+                    self.y_sample, predictions
+                )
+            )
+
+        activation_gradients = tape.gradient(loss, activations)
+        kernels = [layer.kernel for layer in hidden_layers] + [output_layer.kernel]
+        kernel_gradients = tape.gradient(loss, kernels)
+        del tape
+
+        def norm(gradient: Any) -> float:
+            return np.nan if gradient is None else float(tf.norm(gradient).numpy())
+
+        layers = hidden_layers + [output_layer]
+        # The output layer has no activation gradient of its own to report.
+        activation_gradients = list(activation_gradients) + [None]
+        for layer, activation_gradient, kernel_gradient in zip(
+            layers, activation_gradients, kernel_gradients
+        ):
             self.rows.append(
                 {
                     "epoch": epoch + 1,
-                    "layer": variable_path.split("/")[0],
-                    "gradient_norm": norm,
+                    "layer": layer.name,
+                    "activation_grad_norm": norm(activation_gradient),
+                    "kernel_grad_norm": norm(kernel_gradient),
+                    "gradient_norm": norm(kernel_gradient),
+                    "weights": int(np.prod(layer.kernel.shape)),
                 }
             )
 

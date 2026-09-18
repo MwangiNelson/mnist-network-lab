@@ -303,7 +303,18 @@ depth improved the representation or mainly added optimization difficulty.
 
 The activation comparison holds architecture, initialization, optimizer,
 learning rate, batch size, and epochs fixed. The separate six-layer sigmoid
-network records kernel-gradient norms at the end of every epoch.
+network records two gradient norms per layer at the end of every epoch: the
+gradient with respect to the layer's output activations, and the gradient with
+respect to its weight matrix.
+
+Only the first one answers the vanishing-gradient question. Backpropagation
+multiplies the activation gradient by a saturating derivative at every layer it
+passes through, so attenuation shows up there. A weight gradient also carries
+the layer's fan-in and the scale of its incoming activations, which makes it
+useless for comparing layers of different widths: `hidden_1` holds 784x128
+weights against 128x128 for the rest, so its norm is inflated by element count
+alone. Both are recorded, along with the weight count, so the plots below can
+show the per-weight figure rather than assume it.
 """
     ),
     code(
@@ -350,14 +361,41 @@ gradient_frame = gradient_logger.to_frame()
 gradient_frame.to_csv(ARTIFACT_DIR / "gradient_norms.csv", index=False)
 display(gradient_frame.head())
 
-plt.figure(figsize=(10, 5))
-sns.lineplot(data=gradient_frame, x="epoch", y="gradient_norm", hue="layer", marker="o")
-plt.yscale("log")
-plt.title("Deep sigmoid network: per-layer kernel gradient norms")
-plt.ylabel("L2 gradient norm on log scale")
-plt.tight_layout()
-plt.savefig(PLOT_DIR / "sigmoid_gradient_norms.png", dpi=160, bbox_inches="tight")
+hidden_gradients = gradient_frame[gradient_frame["layer"].str.startswith("hidden_")]
+hidden_gradients = hidden_gradients.assign(
+    kernel_grad_per_weight=hidden_gradients["kernel_grad_norm"]
+    / np.sqrt(hidden_gradients["weights"])
+)
+
+fig, axes = plt.subplots(1, 3, figsize=(17, 5))
+for axis, column, title in zip(
+    axes,
+    ["activation_grad_norm", "kernel_grad_norm", "kernel_grad_per_weight"],
+    [
+        "Activation gradient: the real evidence",
+        "Raw kernel gradient: confounded by width",
+        "Kernel gradient per weight",
+    ],
+):
+    sns.lineplot(
+        data=hidden_gradients, x="epoch", y=column, hue="layer", marker="o", ax=axis
+    )
+    axis.set_yscale("log")
+    axis.set_title(title)
+    axis.set_ylabel("L2 norm on log scale")
+    axis.legend(fontsize=7)
+fig.suptitle("Deep sigmoid network: per-layer gradient norms")
+fig.tight_layout()
+fig.savefig(PLOT_DIR / "sigmoid_gradient_norms.png", dpi=160, bbox_inches="tight")
 plt.show()
+
+first_epoch = hidden_gradients[hidden_gradients["epoch"] == 1].set_index("layer")
+attenuation = (
+    first_epoch.loc["hidden_6", "activation_grad_norm"]
+    / first_epoch.loc["hidden_1", "activation_grad_norm"]
+)
+print(f"Epoch 1 activation-gradient attenuation, hidden_6 to hidden_1: {attenuation:.1f}x")
+display(first_epoch[["activation_grad_norm", "kernel_grad_norm", "weights"]])
 """
     ),
     markdown(
@@ -365,12 +403,17 @@ plt.show()
 ### Activation and gradient analysis
 
 `[WRITE AFTER RUN]` State which activation converged fastest and quote the final
-validation losses. Use the gradient-norm plot to compare the first and last
-hidden layers. Sigmoid derivatives are small in saturated regions; multiplying
-many such derivatives can shrink the signal sent to early layers. ReLU keeps a
-unit derivative for positive inputs, though inactive units can still receive a
-zero derivative. Exploding gradients are the opposite failure: repeated large
+validation losses. Use the left panel of the gradient plot to compare the first
+and last hidden layers, and quote the attenuation factor printed above it. Say
+what the middle panel shows and why it is the wrong instrument for this
+question. Sigmoid derivatives are small in saturated regions; multiplying many
+such derivatives shrinks the signal reaching early layers. ReLU keeps a unit
+derivative for positive inputs, though inactive units can still receive a zero
+derivative. Exploding gradients are the opposite failure: repeated large
 derivatives make updates unstable or non-finite.
+
+Also compare the depth penalty across activations. The accuracy cost of adding
+depth is evidence in its own right and needs no instrument caveat.
 """
     ),
     markdown("## 4. Weight initialization"),

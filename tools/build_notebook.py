@@ -291,10 +291,42 @@ print("Validation-selected architecture:", best_arch_name, best_units)
         """
 ### Architecture analysis
 
-`[WRITE AFTER RUN]` Compare the one-layer network with the deepest network and
-compare `one_hidden` with `deep_narrow`. Quote their parameter counts, training
-times, validation accuracies, and generalization gaps. Explain whether added
-depth improved the representation or mainly added optimization difficulty.
+**What I changed.** Hidden layers from one to five, all ReLU with He
+initialization, Adam at 0.001 and batch 128, ten epochs each. The sixth network,
+`deep_narrow` at 224-96-48-24, exists to hold the parameter count fixed: its
+203,522 weights sit within eight of `one_hidden`'s 203,530.
+
+**What happened.** The single 256-unit layer won at 98.04% validation accuracy.
+Depth did not help once: 97.66%, 97.68%, 97.94% and 97.58% for two through five
+layers, and the largest network at 244,890 parameters finished last of the
+stack. The matched-parameter comparison is the cleaner one, and width took it,
+98.04% against 97.46%, a gap of 0.58 points with the same weight budget.
+
+Generalization gaps stayed between 1.60 and 2.10 points everywhere, with no
+trend against depth. The deepest network did not overfit more than the
+shallowest.
+
+**Why.** MNIST digits are 784 inputs that a single wide layer can already
+separate. A deeper stack buys hierarchical features that this problem does not
+need, and pays for them with a longer path for gradients to travel. The
+accuracy differences here are small enough that most of the ordering between
+two, three, four and five layers is run-to-run noise, and I do not claim a
+mechanism for it. What the matched-parameter pair does support is that spending
+203,530 weights on one wide layer beats spreading the same weights across four
+narrow ones.
+
+**One caveat about the time column.** `one_hidden` reports 41.5 seconds, but
+this exact configuration is retrained six more times later in the notebook as
+the baseline for the activation, initialization, optimizer, learning-rate,
+batch-size and regularization phases. Those six report 23.0, 22.6, 22.3, 21.3,
+22.0 and 22.2 seconds, and all seven reach 98.04%. The extra 19 seconds in the
+first row is GPU warm-up and graph compilation charged to whichever experiment
+runs first. Its real training cost is about 22 seconds, and I read the
+architecture time column with that in mind.
+
+**What I learned.** Depth is not free and is not automatically better. Matching
+parameter counts is what turns a depth-versus-width question into a fair one,
+and timing the first fit in a session measures the session, not the model.
 """
     ),
     markdown(
@@ -429,19 +461,80 @@ display(initial[["activation_grad_norm", "kernel_grad_norm", "weights"]])
         """
 ### Activation and gradient analysis
 
-`[WRITE AFTER RUN]` State which activation converged fastest and quote the final
-validation losses. Use the left panel of the gradient plot to compare the first
-and last hidden layers at initialization, and quote both attenuation factors
-printed above it. Say what the epoch-0 line shows, what the later lines show,
-and why the timing of the measurement decides whether this experiment produces
-any evidence at all. Sigmoid derivatives are small in saturated regions; multiplying many
-such derivatives shrinks the signal reaching early layers. ReLU keeps a unit
-derivative for positive inputs, though inactive units can still receive a zero
-derivative. Exploding gradients are the opposite failure: repeated large
-derivatives make updates unstable or non-finite.
+**What I changed.** The activation on the selected 256-unit network, across
+ReLU, tanh and sigmoid, with He initialization for ReLU and Glorot for the two
+saturating ones. Then a separate six-layer sigmoid network at 128 units per
+layer, purely as a gradient diagnostic.
 
-Also compare the depth penalty across activations. The accuracy cost of adding
-depth is evidence in its own right and needs no instrument caveat.
+**What happened at one hidden layer.** ReLU reached 98.04% with a validation
+loss of 0.0770, tanh 97.82% at 0.0782, and sigmoid 96.98% at 0.0996. ReLU and
+tanh are close enough that I would not read much into the 0.22 point difference.
+Sigmoid is the outlier, and the interesting part is how it failed: its training
+accuracy finished at 98.02% against 99.74% for ReLU, and it had the smallest
+generalization gap of the three at 1.04 points. It underfitted. It did not
+overfit and it did not diverge, it simply learned more slowly within the same
+ten epochs.
+
+**What happened with depth.** The six-layer sigmoid network reached 94.30% with
+a validation loss of 0.2026, which is 2.6 times the ReLU loss. Putting the two
+comparisons together gives the cleanest result in this section. Going from ReLU
+to sigmoid at one layer costs 1.06 points. Adding depth to ReLU costs about 0.5
+points, from 98.04% at one layer to 97.58% at five. Adding depth to sigmoid
+costs a further 2.68 points, from 96.98% to 94.30%. Depth punishes sigmoid about
+five times harder than it punishes ReLU, and that interaction needs no caveats
+about how the gradient was measured.
+
+**The gradient evidence, and when to look for it.** At initialization the
+activation gradient falls geometrically from the layer nearest the loss to the
+layer nearest the input: 8.451e-02 at `hidden_6`, then 2.003e-02, 4.894e-03,
+1.207e-03, 2.800e-04, and 6.614e-05 at `hidden_1`. Each step multiplies by about
+0.24, and across five steps that is a total attenuation of 1277.8x. On the
+log-scale plot against depth it is a straight line, which is what a constant
+per-layer factor looks like.
+
+That factor is predictable in advance. Glorot uniform gives these 128 by 128
+layers a weight variance of `2/256`, so the backward pass through one layer
+scales the gradient by about `sqrt(128 * 2/256) = 1` from the weights and by the
+sigmoid derivative from the activation. A sigmoid sitting near zero has a
+derivative of 0.25, giving a predicted gain of 0.25 per layer against the 0.238
+I measured.
+
+Then it disappears. By the end of epoch 1 the same ratio is 0.9x, and by epoch
+10 it is 0.1x, meaning the first hidden layer now carries the largest gradient
+of the six. The network learns weights big enough to push signal back through
+the saturating layers, and it does so within a single epoch.
+
+**Why the timing decides the experiment.** My first attempt at this diagnostic
+recorded only at epoch end, and measured no attenuation whatsoever: 0.0721 at
+`hidden_1` against 0.0656 at `hidden_6`, a ratio of 0.9x. I nearly concluded that
+this network shows no vanishing gradient. The effect was there all along, three
+orders of magnitude in size, and had been trained away 430 optimizer steps
+before the first measurement was taken.
+
+I also recorded the kernel gradient for contrast, and it is the wrong instrument
+here for a second reason. A weight gradient carries the layer's fan-in and the
+scale of its incoming activations, so `hidden_1` at 784 by 128 cannot be compared
+with five 128 by 128 layers on raw norm: its 100,352 weights inflate the
+Frobenius norm by about 2.5 times on element count alone. That is why the weight
+count is recorded alongside it.
+
+**How activations shape this.** Sigmoid derivatives are at most 0.25 and fall
+towards zero once a unit saturates, so a stack of them multiplies the
+backpropagated signal down at every step. ReLU keeps a derivative of exactly one
+wherever its input is positive, which is why the same depth costs it so much
+less, though a unit stuck at a negative input passes back zero and stops
+learning entirely. Exploding gradients are this mechanism with the factor above
+one: had the initial scaling put the per-layer gain at 4 rather than 0.24, these
+five layers would amplify by roughly 1000x instead of attenuating, and updates
+would oscillate or overflow. The learning rate 0.1 run in the next section is the
+practical version of that failure.
+
+**What I learned.** Vanishing gradients are a property of a network at
+initialization, not a permanent condition, and an instrument that samples at the
+wrong moment reports their absence just as confidently as their presence. The
+quantity has to be the gradient with respect to activations, the moment has to be
+before the first update, and depth belongs on the x axis so that a constant
+per-layer factor shows up as a straight line.
 """
     ),
     markdown("## 4. Weight initialization"),
@@ -479,11 +572,34 @@ print("Validation-selected non-zero initializer:", best_initializer)
         """
 ### Initialization analysis
 
-`[WRITE AFTER RUN]` Quote the zero, Glorot, and He results. All-zero weights make
-neurons in the same layer start identically and receive identical updates. The
-network cannot break that symmetry, so increasing the number of hidden neurons
-does not create distinct learned features. Relate the winning initializer to
-the selected activation and its intended variance scaling.
+**What I changed.** The initializer on the selected 256-unit ReLU network,
+across all zeros, Glorot uniform and He normal. Nothing else moved.
+
+**What happened.** Zeros reached 11.24% and stopped there. Its best epoch was 1,
+its training accuracy was also 11.24%, and its generalization gap was 0.00
+points. Its validation loss sat at 2.3012, which is essentially `ln(10)` at
+2.3026, the loss of a model assigning equal probability to all ten classes.
+Glorot reached 97.76% and He reached 98.04%.
+
+**Why.** With every weight at zero, all 256 units in the layer compute the same
+output, receive the same gradient and take the same step. They stay identical
+for the whole run, so a 256-unit layer has the effective capacity of a single
+unit, and the best it can do is predict the class prior. The width of the layer
+is irrelevant, which is the point: the failure is symmetry, not size. The
+accuracy of 11.24% is the share of the most common digit in my 5,000-image
+validation split, not a tenth.
+
+He beat Glorot by 0.28 points, which is the ordering I expected from the
+activation. He scales the initial variance by `2/fan_in`, and the factor of two
+compensates for ReLU zeroing roughly half its inputs. Glorot uses
+`2/(fan_in+fan_out)` and assumes an activation that is symmetric about zero,
+which ReLU is not. The margin is small because one layer gives the mismatch
+little room to compound.
+
+**What I learned.** Initialization is not a detail to accept from the defaults.
+Zero weights do not train slowly, they do not train at all, and the loss value
+tells you the model has collapsed to the class prior rather than merely
+underperforming.
 """
     ),
     markdown("## 5. Optimization, learning rate, and batch size"),
@@ -572,11 +688,45 @@ print("Selected:", best_optimizer, best_learning_rate, best_batch_size)
         """
 ### Optimization analysis
 
-`[WRITE AFTER RUN]` Compare convergence in the first few epochs and the best
-validation result for all three optimizers. Explain any instability at learning
-rate 0.1 using the observed loss, not a generic claim. Compare batch sizes using
-both training time and validation accuracy. Smaller batches produce noisier,
-more frequent updates; larger batches make fewer updates per epoch.
+**What I changed.** Three optimizers at a fixed learning rate of 0.001, then
+three learning rates on Adam, then three batch sizes on Adam.
+
+**What happened.** Adam reached 98.04%, RMSprop 97.92% and SGD with momentum
+91.52%. Learning rate 0.001 gave 98.04%, 0.01 gave 97.00% and 0.1 gave 89.56%.
+Batch 128 gave 98.04% in 22.0 seconds, batch 32 gave 97.74% in 79.1 seconds and
+batch 512 gave 97.40% in 7.6 seconds.
+
+**Why.** The SGD result is not the optimizer being worse, and I want to be
+careful here. Its training accuracy finished at 91.85% against a validation
+accuracy of 91.52%, a gap of 0.33 points, and its best epoch was the last one.
+That is a model still climbing when the budget ran out, not one that converged
+somewhere poor. A step size of 0.001 is small for plain SGD while Adam's
+per-parameter scaling makes the same nominal rate an effective one. Comparing
+optimizers at a single shared learning rate measures the pairing, not the
+optimizer, and a fair comparison would tune the rate separately for each.
+
+Learning rate 0.1 failed in a specific way worth naming. Its best validation
+accuracy, 89.56%, came at epoch 1 and the run never beat it again, finishing at
+84.12% validation against 83.06% training. Training accuracy below validation
+accuracy, a gap of minus 1.06 points, is the signature of steps large enough to
+keep throwing the weights back out of whatever basin they just found. Training
+accuracy is averaged across the epoch while validation accuracy is measured once
+at the end, so a run that thrashes throughout scores worse on the average than
+on the snapshot. A learning rate that peaks in the first epoch and decays
+afterwards is diverging, not converging slowly.
+
+Batch size traded time against accuracy almost linearly in the direction I
+expected. Batch 32 makes 1,719 updates per epoch and batch 512 makes 108, so
+the small batch spent 3.6 times the wall clock of batch 128 for 0.30 points
+less accuracy. Batch 512 is the interesting one: it ran in under a tenth of
+batch 32's time and gave up only 0.34 points, because fewer, less noisy updates
+cover less ground per epoch at this budget.
+
+**What I learned.** Adam at 0.001 with batch 128 is the configuration I carry
+forward, but the batch 512 result is the one I would reach for if I had to run
+this sweep twenty times. The 0.1 run is also a reminder that a rising then
+falling validation curve is diagnostic on its own, before any loss value is
+quoted.
 """
     ),
     markdown("## 6. Regularization"),
@@ -623,11 +773,33 @@ print("Validation-selected final configuration:", selected_config)
         """
 ### Regularization analysis
 
-`[WRITE AFTER RUN]` Compare the training-validation gap with and without
-regularization. State whether the unregularized model overfit enough for dropout
-or L2 to help. MNIST is clean, balanced, and large relative to these networks,
-so a well-sized model may show only a small gap. Strong dropout can then reduce
-both training and validation performance.
+**What I changed.** Dropout at 0.2, L2 at 0.0001, and both together, on the
+selected 256-unit ReLU network.
+
+**What happened.** Nothing improved validation accuracy. The unregularized
+network reached 98.04%, dropout 97.98%, L2 97.96%, and both together 97.86%.
+The generalization gap did fall in step with how much regularization I added:
+1.70 points with none, 1.43 with L2, 1.15 with dropout, and 0.79 with both.
+
+One number moved the other way. Dropout gave the lowest validation loss of the
+four, 0.0702 against 0.0770 unregularized, while scoring 0.06 points lower on
+accuracy. It produced better calibrated probabilities on roughly the same set of
+correct answers.
+
+**Why.** There was no overfitting here worth fixing. A 1.70 point gap on 55,000
+training images with 203,530 parameters is close to the floor for this problem.
+MNIST is clean, balanced across the ten digits, and large relative to a network
+this size. Regularization works by trading variance for bias, and with almost no
+variance to reclaim, every configuration paid the bias and got nothing back. The
+gap declining monotonically alongside accuracy declining monotonically is what
+that trade looks like when the trade is not worth making.
+
+**What I learned.** A shrinking train-validation gap is not evidence that
+regularization helped. It only shows the regularizer is doing something. I kept
+the unregularized configuration for the final model and would revisit that on a
+smaller or dirtier dataset, where the gap would give dropout something to work
+with. Early stopping still earns its place in the final run for a different
+reason: it picks the best epoch rather than the last one.
 """
     ),
     markdown(
@@ -748,9 +920,44 @@ save_metadata(
         """
 ### Final fully connected model analysis
 
-`[WRITE AFTER RUN]` Report the selected configuration, best validation epoch,
-test accuracy, most common confusion pairs, and two visually ambiguous errors.
-Explain whether the held-out result agrees with the validation estimate.
+**The selected configuration.** One hidden layer of 256 ReLU units, He normal
+initialization, Adam at a learning rate of 0.001, batch size 128, no dropout and
+no L2, with early stopping on validation loss at a patience of three. That is
+203,530 parameters. Every choice in that list came from a validation comparison
+in the sections above, and the test set was not touched until this cell.
+
+**Results.** Early stopping selected epoch 11, at 98.06% validation accuracy. On
+the 10,000 held-out test images the model reached 97.89% accuracy with a loss of
+0.0753, making 211 errors.
+
+Validation said 98.06% and the test set said 97.89%, a difference of 0.17
+points. On 10,000 images one standard error is roughly 0.14 points, so the two
+agree to within the noise. The validation set never fed a gradient update, but it
+did choose between about twenty-five candidates and pick the stopping epoch, and
+selecting that many times against 5,000 images is enough to bias the estimate
+optimistically by a fraction of a point. The 0.17-point drop is what that looks
+like.
+
+**Where the errors fall.** Digit 8 is the weakest class with 35 errors, then 7
+with 33, 9 with 26 and 5 with 25. The most frequent single confusions are 7
+predicted as 9 (12 times), 5 predicted as 3 (11), 7 predicted as 2 (10), then 2
+as 8 and 6 as 0 at 7 each.
+
+**On confidence.** The error set is not mostly near-misses. Of the 211 errors, 74
+were made with more than 90% probability on the wrong class. Test image 3520 is a
+6 called a 4 at 100.00% confidence, and image 9587 is a 9 called a 4 at 99.99%.
+At the other end, image 3060 is a 9 called a 7 at 28.10% and image 1941 is a 7
+called a 9 at 28.15%, where the model is visibly unsure and the digits really are
+ambiguous. A softmax probability from this network is not a reliable measure of
+how likely it is to be right, which matters directly for the demo application
+that shows these numbers to a user.
+
+**Save and restore.** The model is written to `final_fc.keras`, reloaded, and the
+reloaded copy's predictions are compared against the original with
+`np.testing.assert_allclose` at a relative tolerance of 1e-5. The cell fails if
+they diverge. The comparison covers the first 32 test images rather than all
+10,000, which is enough to catch a broken round trip, since serialization
+failures affect every prediction rather than a rare few.
 """
     ),
     markdown(
@@ -826,13 +1033,46 @@ display(comparison)
         """
 ### Fully connected model versus CNN
 
-`[WRITE AFTER RUN]` State what the student-designed model achieved before the
-CNN was introduced, then give the accuracy gap in percentage points. Convolution
-uses local receptive fields and shares a filter across positions. Pooling makes
-small translations less disruptive. Flattening first discards the explicit row
-and column relationships, so a fully connected layer must learn similar stroke
-detectors separately at different positions. Compare the models' largest
-confusion pairs to see whether the CNN reduced the same errors or different ones.
+**Where my own architecture finished.** Before any convolution appeared in this
+notebook, my fully connected model reached 97.89% test accuracy with 211 errors
+on 203,530 parameters, trained in about 29 seconds.
+
+**The benchmark.** The Conv-Pool-Conv-Pool-Dense stack reached 99.02% test
+accuracy with 98 errors on 255,230 parameters, trained in 65.0 seconds under the
+same optimizer and the same epoch budget. That is a gap of 1.13 percentage
+points, and it more than halves the error count, a 54% reduction, for 25% more
+parameters and 2.3 times the training time.
+
+**Why convolution suits this data.** A 28 by 28 image flattened into 784
+independent inputs keeps every pixel value and discards every statement about
+which pixels are adjacent. The dense layer has to rediscover from data that input
+100 and input 128 are vertical neighbours, and it has to learn a stroke detector
+separately for every position that stroke might occupy. A convolution is handed
+that structure. Each filter sees a local patch, and the same weights slide across
+all positions, so one learned edge detector applies everywhere and costs one set
+of weights rather than 784. Pooling then discards precise position within each
+window, which is why a digit shifted by a pixel or two produces nearly the same
+features.
+
+**Did it fix the same errors?** Mostly, and this is the part I found most
+interesting. Of my 211 errors the CNN fixed 165, but it introduced 52 of its own,
+so only 46 of its 98 mistakes are ones I also made. It is not uniformly better
+image by image.
+
+The per-class picture is sharper. My worst class was 8 with 35 errors, which the
+CNN cut to 8. But digit 7 came out at exactly 33 errors for both models, with
+both getting 995 of them right. The CNN did not improve on 7s at all. It
+relocated the mistakes: my 7s scattered into 9, 2 and 1, while the CNN put 22 of
+its 33 into class 2 alone, against my 10. A 7 with a flat top and a 2 with a
+small loop share a lot of local stroke structure, and pooling away exact position
+makes that pair harder to separate rather than easier.
+
+**What I learned.** The gap closes by about half the remaining error, not by an
+order of magnitude, and what buys it is an architectural assumption rather than
+capacity, since the CNN carries only 25% more parameters. Convolution and pooling
+are the right prior for images. Pooling's translation tolerance is also not free:
+it costs precision on the one pair where exact position was the distinguishing
+feature.
 """
     ),
     markdown("## Complete experiment table and conclusions"),
@@ -853,18 +1093,85 @@ display(results[summary_columns])
         """
 ## Personal conclusion
 
-`[WRITE AFTER RUN]` Write this in your own voice. Use exact numbers to answer:
+**Depth and width.** One hidden layer of 256 units won, at 98.04% validation
+accuracy, and it was also the smallest network I tried at 203,530 parameters.
+Two through five layers gave 97.66%, 97.68%, 97.94% and 97.58%, so depth never
+paid. The comparison I trust is the matched-parameter one, because it removes
+capacity as an explanation: `deep_narrow` at 224-96-48-24 holds 203,522 weights,
+within eight of the winner, and reached 97.46%. Width took that by 0.58 points.
+The trade-off is not accuracy against capacity, since both models have the same
+budget. It is that MNIST does not need a feature hierarchy, so extra depth only
+lengthens the path a gradient has to travel.
 
-- Which depth and width worked best, and what trade-off did you observe?
-- What evidence showed weak gradient flow in the deep sigmoid model?
-- How did zero, Glorot, and He initialization differ?
-- Which optimizer, learning rate, and batch size produced the best validation result?
-- Did regularization fix measurable overfitting or add unnecessary bias?
-- What did the fully connected model achieve before the CNN comparison?
-- How large was the CNN gap, and which image-specific assumptions explain it?
+**Gradient flow in the deep sigmoid model.** At initialization the activation
+gradient shrank by a factor of about 0.24 per layer, from 8.451e-02 at the last
+hidden layer to 6.614e-05 at the first, a total of 1277.8x across five layers.
+That factor is close to the 0.25 predicted from Glorot variance and a sigmoid
+derivative near zero, and the decay is a straight line on a log plot against
+depth. The behavioural consequence is a network that reached only 94.30% against
+98.04% for the shallow ReLU model on the same budget, at a validation loss 2.6
+times higher.
 
-End with one limitation. A single seed and one train-validation split do not
-measure run-to-run uncertainty; repeated seeds would strengthen the comparison.
+The thing I did not expect is that the attenuation is gone after one epoch, at
+0.9x, and inverted by epoch 10, at 0.1x. I only found this because a first
+version of the diagnostic measured at epoch end and reported no attenuation at
+all. Had I trusted that, I would have written the opposite conclusion from the
+same network.
+
+**Initialization.** Zeros reached 11.24% and never moved, at a validation loss of
+2.3012 against `ln(10)` at 2.3026. Every unit in the layer starts identical and
+receives an identical gradient, so 256 units behave as one and the model can only
+output the class prior. Glorot reached 97.76% and He reached 98.04%. He is the
+right pairing for ReLU because its `2/fan_in` scaling compensates for ReLU
+zeroing about half its inputs, though at one layer the mismatch has little room
+to compound and the margin is only 0.28 points.
+
+**Optimizer, learning rate, batch size.** Adam at 0.001 with batch 128, which
+gave 98.04%. RMSprop was within noise at 97.92%. SGD with momentum reached
+91.52%, but I will not call it the worse optimizer: its training accuracy
+finished at 91.85% with its best epoch last, which is a model still improving
+when the budget ended rather than one that converged badly. Comparing optimizers
+at one shared learning rate measures the pairing. Learning rate 0.1 peaked at
+89.56% in epoch 1 and decayed after, ending with training accuracy below
+validation accuracy, which is what thrashing looks like. Batch 512 deserves a
+mention: 7.6 seconds against 22.0 for batch 128 and 79.1 for batch 32, for only
+0.64 points less accuracy than the winner.
+
+**Regularization.** It fixed nothing, because there was nothing to fix. The
+unregularized gap was 1.70 points, and dropout, L2 and both together pushed it to
+1.15, 1.43 and 0.79 while pushing accuracy down to 97.98%, 97.96% and 97.86%.
+That is bias bought at full price with no variance to sell. Dropout did give the
+best validation loss of the four at 0.0702, so it improved calibration without
+improving accuracy. I kept the unregularized configuration.
+
+**Before the CNN.** 97.89% test accuracy, 211 errors on 10,000 images, 203,530
+parameters, about 29 seconds of training. Validation had predicted 98.06%, and
+the 0.17 point drop is within the roughly 0.14 point standard error on a
+10,000-image test set.
+
+**The CNN gap.** 99.02% against 97.89%, so 1.13 percentage points, which removes
+54% of the remaining errors for 25% more parameters and 2.3 times the training
+time. The assumptions that buy it are local receptive fields, one filter shared
+across every position, and pooling that tolerates small translations. Flattening
+to 784 inputs throws away which pixels are adjacent, so my dense layer had to
+learn each stroke detector separately for each place a stroke might appear.
+
+Two details stopped me treating the CNN as simply better. It fixed 165 of my 211
+errors but introduced 52 new ones, so only 46 of its 98 mistakes overlap with
+mine. And on digit 7 both models made exactly 33 errors: the CNN did not improve
+that class at all, it concentrated the failures, putting 22 of them into class 2
+where I had put 10. Pooling away exact position is what makes a flat-topped 7 and
+a small-looped 2 harder to tell apart, so the mechanism that wins overall costs
+precision on the one pair where position was the distinguishing feature.
+
+**Limitations.** Every number here comes from one seed, 8401, and one
+55,000/5,000 split. Differences under about half a point, which covers most of
+the architecture table and the whole regularization table, are not separable from
+run-to-run variation on this evidence, and repeated seeds with error bars would
+be needed to claim otherwise. The optimizer comparison shares a single learning
+rate and so measures pairings rather than optimizers. The deep sigmoid diagnostic
+uses one width and one initializer, so the 0.24 per-layer factor is specific to
+Glorot at 128 units and is not a general constant.
 """
     ),
     code(

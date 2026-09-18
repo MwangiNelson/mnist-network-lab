@@ -14,13 +14,18 @@ Prerequisites:
 - A DNS record for the API hostname
 - The VPS Nginx install, already present on `gpl_server`
 
-Copy the project and model files:
+Clone the repository on the VPS and stage the model. `final_fc.keras` is
+committed, at 2.4 MB, so there is nothing to copy over separately:
 
 ```bash
-ssh gpl_server 'mkdir -p /opt/mnist-network-lab/deploy/models'
-rsync -av --exclude .git --exclude node_modules ./ gpl_server:/opt/mnist-network-lab/
-scp artifacts/final_fc.keras artifacts/model_metadata.json gpl_server:/opt/mnist-network-lab/deploy/models/
+ssh gpl_server
+git clone https://github.com/MwangiNelson/mnist-network-lab.git /opt/mnist-network-lab
+cd /opt/mnist-network-lab
+mkdir -p deploy/models
+cp artifacts/final_fc.keras artifacts/model_metadata.json deploy/models/
 ```
+
+To update later, `git pull` and repeat the `cp`, then rebuild.
 
 On the VPS, copy `deploy/.env.example` to `deploy/.env` and replace the example
 Vercel origin. Install the vhost, substituting the real API hostname:

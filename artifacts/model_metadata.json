@@ -1,0 +1,34 @@
+{
+  "model": "final_fully_connected",
+  "input_shape": [
+    784
+  ],
+  "classes": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "scaling": "pixel / 255.0",
+  "seed": 8401,
+  "test_accuracy": 0.9789000153541565,
+  "test_loss": 0.07533429563045502,
+  "config": {
+    "hidden_units": [
+      256
+    ],
+    "activation": "relu",
+    "initializer": "he_normal",
+    "optimizer": "adam",
+    "learning_rate": 0.001,
+    "batch_size": 128,
+    "dropout": 0.0,
+    "l2": 0.0
+  }
+}

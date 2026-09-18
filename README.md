@@ -17,7 +17,7 @@ FastAPI service and displays the ten class probabilities.
 | `training/experiment_utils.py` | Reusable Keras experiment runner |
 | `api/` | Public FastAPI inference service |
 | `web/` | React drawing interface for Vercel |
-| `deploy/` | VPS Docker Compose and Caddy example |
+| `deploy/` | VPS Docker Compose and Nginx example |
 | `HAND_IN_CHECKLIST.md` | Submission and marking checklist |
 | `COLAB_RUNBOOK.md` | Exact full-run and artifact download steps |
 

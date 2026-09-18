@@ -7,10 +7,3 @@ dist/
 *.tsbuildinfo
 .env
 .env.local
-artifacts/*.keras
-artifacts/*.h5
-artifacts/*.onnx
-artifacts/*.csv
-artifacts/*.json
-artifacts/plots/
-!artifacts/.gitkeep

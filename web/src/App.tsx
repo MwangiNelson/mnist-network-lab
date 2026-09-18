@@ -43,21 +43,56 @@ function preparePixels(source: HTMLCanvasElement): number[] | null {
   target.height = 28;
   const targetContext = target.getContext("2d", { willReadFrequently: true });
   if (!targetContext) return null;
-  targetContext.fillStyle = "black";
-  targetContext.fillRect(0, 0, 28, 28);
   targetContext.imageSmoothingEnabled = true;
-  targetContext.drawImage(
-    source,
-    minX,
-    minY,
-    width,
-    height,
-    Math.floor((28 - drawWidth) / 2),
-    Math.floor((28 - drawHeight) / 2),
-    drawWidth,
-    drawHeight,
+
+  const render = (offsetX: number, offsetY: number) => {
+    targetContext.fillStyle = "black";
+    targetContext.fillRect(0, 0, 28, 28);
+    targetContext.drawImage(
+      source,
+      minX,
+      minY,
+      width,
+      height,
+      offsetX,
+      offsetY,
+      drawWidth,
+      drawHeight,
+    );
+    return targetContext.getImageData(0, 0, 28, 28).data;
+  };
+
+  // MNIST fits each digit into a 20-pixel box and then positions it so its
+  // center of mass lands in the middle of the 28 by 28 field, not its bounding
+  // box. The two differ by a few pixels on any digit whose ink is unevenly
+  // distributed, a 7 or a 1 most of all. A fully connected model has no
+  // translation invariance, so those few pixels move every one of the 784
+  // inputs. On 1,000 MNIST test digits pushed through this pipeline, bounding
+  // box centring scored 87.4% and read only 61.6% of the 7s correctly; centre
+  // of mass scored 96.9%, against 98.1% for the raw digits. See
+  // tools/check_canvas_centring.py.
+  const centeredX = (28 - drawWidth) / 2;
+  const centeredY = (28 - drawHeight) / 2;
+  const firstPass = render(centeredX, centeredY);
+
+  let mass = 0;
+  let momentX = 0;
+  let momentY = 0;
+  for (let y = 0; y < 28; y += 1) {
+    for (let x = 0; x < 28; x += 1) {
+      const value = firstPass[(y * 28 + x) * 4];
+      mass += value;
+      momentX += value * x;
+      momentY += value * y;
+    }
+  }
+  if (mass === 0) return null;
+
+  // 13.5 is the middle of a 0..27 grid.
+  const reduced = render(
+    centeredX + (13.5 - momentX / mass),
+    centeredY + (13.5 - momentY / mass),
   );
-  const reduced = targetContext.getImageData(0, 0, 28, 28).data;
   return Array.from({ length: 784 }, (_, index) => reduced[index * 4] / 255);
 }
 
